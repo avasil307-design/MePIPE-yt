@@ -48,6 +48,8 @@ jobs:
           gh release create "$GITHUB_REF_NAME" \
             "mepipe-${GITHUB_REF_NAME}-debug.apk" \
             "mepipe-${GITHUB_REF_NAME}-debug.apk.sha256" \
+            "mepipe-${GITHUB_REF_NAME}-fdroid-unsigned.apk" \
+            "mepipe-${GITHUB_REF_NAME}-fdroid-unsigned.apk.sha256" \
             --title "MePIPE ${GITHUB_REF_NAME}" \
             --notes-file .github/RELEASE_NOTES_ALPHA2B.md \
             --prerelease
