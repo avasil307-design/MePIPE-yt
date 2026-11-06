@@ -27,6 +27,13 @@ PY
   root_cause=${root_cause//$'\r'/'%0D'}
   root_cause=${root_cause//$'\n'/'%0A'}
   echo "::error title=Gradle root cause::$root_cause"
+
+  while IFS= read -r diagnostic; do
+    diagnostic=${diagnostic//'%'/'%25'}
+    diagnostic=${diagnostic//$'\r'/'%0D'}
+    diagnostic=${diagnostic//$'\n'/'%0A'}
+    echo "::error title=Kotlin compiler diagnostic::$diagnostic"
+  done < <(grep -E '(^e: |^w: |\.kt:[0-9]+:[0-9]+|Unresolved reference|Type mismatch|Overload resolution ambiguity)' "$log_file" | tail -n 30 || true)
 fi
 
 exit "$gradle_status"
