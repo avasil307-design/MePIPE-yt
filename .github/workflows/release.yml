@@ -35,8 +35,11 @@ jobs:
       - name: Prepare release assets
         run: |
           apk="mepipe-${GITHUB_REF_NAME}-debug.apk"
+          fdroid_apk="mepipe-${GITHUB_REF_NAME}-fdroid-unsigned.apk"
           cp app/build/outputs/apk/debug/app-debug.apk "$apk"
+          cp app/build/outputs/apk/release/app-release-unsigned.apk "$fdroid_apk"
           sha256sum "$apk" > "$apk.sha256"
+          sha256sum "$fdroid_apk" > "$fdroid_apk.sha256"
 
       - name: Publish GitHub prerelease
         env:
@@ -46,5 +49,5 @@ jobs:
             "mepipe-${GITHUB_REF_NAME}-debug.apk" \
             "mepipe-${GITHUB_REF_NAME}-debug.apk.sha256" \
             --title "MePIPE ${GITHUB_REF_NAME}" \
-            --notes-file .github/RELEASE_NOTES_ALPHA2.md \
+            --notes-file .github/RELEASE_NOTES_ALPHA2B.md \
             --prerelease

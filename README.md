@@ -4,7 +4,9 @@
 
 > MePIPE не связан с NewPipe e.V. или YouTube и не использует официальный YouTube Data API. Доступность YouTube и извлечения потоков зависит от сети и региона; изменения YouTube могут временно нарушить работу.
 
-## Возможности alpha.2
+## Возможности alpha.2b
+
+Это повторная сборка alpha.2 для решения проблемы с установкой и подготовки Android/F-Droid APK; функциональность поиска и воспроизведения не менялась.
 
 - Поиск реальных публичных видео YouTube без API-ключа и входа в аккаунт.
 - Превью, названия, каналы, длительность и доступные сведения о просмотрах/дате.
@@ -32,11 +34,11 @@ Google-подписки требуют официальной OAuth-интегр
 ./gradlew assembleDebug
 ```
 
-APK появится по пути `app/build/outputs/apk/debug/app-debug.apk`. GitHub Actions собирает приложение при push и pull request; APK можно скачать из артефактов [успешной сборки alpha.2](https://github.com/avasil307-design/MePIPE-yt/actions/runs/42236213060).
+Debug APK появится по пути `app/build/outputs/apk/debug/app-debug.apk`, unsigned F-Droid APK — в `app/build/outputs/apk/release/app-release-unsigned.apk`. GitHub Actions проверяет подпись debug APK и собирает обе версии.
 
-## Установка alpha.2
+## Установка alpha.2b
 
-Для ручной установки скачайте [подписанный debug APK из релиза](https://github.com/avasil307-design/MePIPE-yt/releases/download/v0.1.0-alpha.2/mepipe-v0.1.0-alpha.2-debug.apk). Это тестовая сборка, подписанная debug-ключом, а не production-релиз. APK с названием `app-release-unsigned.apk` не устанавливается напрямую: он специально оставлен без подписи для сборки F-Droid.
+Для ручной установки скачайте [подписанный debug APK из релиза alpha.2b](https://github.com/avasil307-design/MePIPE-yt/releases/download/v0.1.0-alpha.2b/mepipe-v0.1.0-alpha.2b-debug.apk). Это тестовая сборка, не production-релиз. Если на устройстве установлена другая MePIPE debug-сборка, сначала удалите её: debug-сертификаты разных CI-запусков могут отличаться. APK с `fdroid-unsigned` в названии не устанавливается напрямую — F-Droid подпишет свою сборку.
 
 ## Лицензия
 
