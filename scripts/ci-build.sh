@@ -3,7 +3,7 @@ set -uo pipefail
 
 log_file="${RUNNER_TEMP:-/tmp}/mepipe-gradle-build.log"
 set +e
-./gradlew --no-daemon assembleDebug --console=plain --stacktrace 2>&1 | tee "$log_file"
+./gradlew --no-daemon :app:verifyFdroidRuntimeDependencies :app:assembleDebug :app:assembleRelease --console=plain --stacktrace 2>&1 | tee "$log_file"
 gradle_status=${PIPESTATUS[0]}
 set -e
 

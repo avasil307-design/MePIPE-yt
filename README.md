@@ -26,7 +26,7 @@ Google-подписки требуют официальной OAuth-интегр
 
 ## Сборка
 
-Нужны JDK 17 и Android SDK Platform 35.
+Нужны JDK 17 и Android SDK Platform 35. Проект не зависит от Google Mobile Services, Firebase или Google Play Services. Информация о подготовке к F-Droid и ограничениях публикации: [`FDROID.md`](FDROID.md).
 
 ```bash
 ./gradlew assembleDebug

@@ -2,6 +2,7 @@ package app.mepipe.yt
 
 import android.content.Context
 import android.os.Bundle
+import android.util.Log
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.background
@@ -278,6 +279,9 @@ private fun MePipeApp(
         } catch (exception: Exception) {
             searchError = exception.message?.takeIf { it.isNotBlank() }
                 ?: "Не удалось получить результаты. Проверьте подключение и попробуйте ещё раз."
+        } catch (error: LinkageError) {
+            Log.e("MePIPE", "Search dependency failed to load", error)
+            searchError = "Не удалось загрузить компонент поиска. Перезапустите приложение или сообщите об ошибке."
         } finally {
             isLoading = false
         }
@@ -296,6 +300,9 @@ private fun MePipeApp(
             } catch (exception: Exception) {
                 playbackError = exception.message?.takeIf { it.isNotBlank() }
                     ?: "Не удалось получить видеопоток с YouTube."
+            } catch (error: LinkageError) {
+                Log.e("MePIPE", "Playback dependency failed to load", error)
+                playbackError = "Не удалось загрузить компонент воспроизведения. Сообщите об ошибке."
             } finally {
                 isResolvingVideo = false
             }

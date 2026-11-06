@@ -54,3 +54,23 @@ dependencies {
     testImplementation("junit:junit:4.13.2")
     androidTestImplementation("androidx.compose.ui:ui-test-junit4")
 }
+
+tasks.register("verifyFdroidRuntimeDependencies") {
+    group = "verification"
+    description = "Fails if runtime dependencies include Google Play Services, Firebase, or Play SDKs."
+    doLast {
+        val forbiddenGroups = setOf("com.google.android.gms", "com.google.firebase", "com.google.android.play")
+        val forbidden = configurations.getByName("debugRuntimeClasspath")
+            .incoming.resolutionResult.allComponents
+            .mapNotNull { it.moduleVersion }
+            .filter { component -> forbiddenGroups.any { group ->
+                component.group == group || component.group.startsWith("$group.")
+            } }
+            .map { "${it.group}:${it.name}:${it.version}" }
+            .distinct()
+        check(forbidden.isEmpty()) {
+            "F-Droid build must not include Google Play/Firebase SDKs: ${forbidden.joinToString()}"
+        }
+        println("F-Droid dependency check passed: no GMS, Firebase, or Google Play SDKs.")
+    }
+}
