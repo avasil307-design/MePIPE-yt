@@ -13,12 +13,20 @@ if [[ $gradle_status -ne 0 ]]; then
   tail -n 100 "$log_file" >> "${GITHUB_STEP_SUMMARY:-/dev/null}"
   echo '```' >> "${GITHUB_STEP_SUMMARY:-/dev/null}"
 
-  while IFS= read -r line; do
-    line=${line//'%'/'%25'}
-    line=${line//$'\r'/'%0D'}
-    line=${line//$'\n'/'%0A'}
-    echo "::notice title=Gradle output::$line"
-  done < <(tail -n 40 "$log_file")
+  root_cause=$(python3 - "$log_file" <<'PY'
+import sys
+lines = open(sys.argv[1], encoding="utf-8", errors="replace").read().splitlines()
+start = next((i for i, line in enumerate(lines) if "What went wrong:" in line), None)
+if start is not None:
+    print(" | ".join(line.strip() for line in lines[start:start + 18] if line.strip()))
+else:
+    print(" | ".join(line.strip() for line in lines[-30:] if line.strip()))
+PY
+  )
+  root_cause=${root_cause//'%'/'%25'}
+  root_cause=${root_cause//$'\r'/'%0D'}
+  root_cause=${root_cause//$'\n'/'%0A'}
+  echo "::error title=Gradle root cause::$root_cause"
 fi
 
 exit "$gradle_status"
