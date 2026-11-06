@@ -1,29 +1,35 @@
 # MePIPE
 
-An Android-first NewPipe-inspired client UI experiment using Jetpack Compose and Material You (Material 3).
+Независимый Android-клиент для поиска и просмотра публичных видео YouTube. Интерфейс написан на Kotlin и Jetpack Compose с Material 3; поиск и получение потоков выполняются через NewPipe Extractor, воспроизведение — через ExoPlayer.
 
-## What is here
+> MePIPE не связан с NewPipe e.V. или YouTube и не использует официальный YouTube Data API. Доступность YouTube и извлечения потоков зависит от сети и региона; изменения YouTube могут временно нарушить работу.
 
-- Native Android app scaffold (Kotlin + Jetpack Compose)
-- Four selectable Material 3 color palettes (Plant Life, Sage, Citrus, and Turquoise), each with coordinated light and dark variants; the choice is saved on-device
-- Video-first home feed with wide thumbnails, compact channel metadata, category chips, and a Shorts shelf
-- Familiar five-item bottom navigation, quick search, cast, notifications, and profile actions
-- Russian-language sample feed with category filters and local search
+## Возможности alpha.2
 
-The visual structure follows familiar mainstream video-app patterns rather than the more utility-focused layout common in Pipe clients, while keeping MePIPE branding distinct.
+- Поиск реальных публичных видео YouTube без API-ключа и входа в аккаунт.
+- Превью, названия, каналы, длительность и доступные сведения о просмотрах/дате.
+- Получение совместимого видеопотока и воспроизведение внутри приложения.
+- Четыре сохраняемые цветовые схемы Material 3: Plant Life, Шалфей, Цитрус и Бирюза.
+- Светлая и тёмная темы, загрузочные состояния и повтор запроса при сетевой ошибке.
 
-The app now searches public YouTube results through NewPipe Extractor, loads real thumbnails, resolves playable streams, and plays them with ExoPlayer. This is an independent lightweight client, not the upstream NewPipe app. Subscriptions, account login, offline downloads, and background playback are not included yet. Network access and YouTube availability can vary by region, and YouTube changes may temporarily break extraction.
+## Известные ограничения
 
-## Build
+Это ранняя альфа. Пока нет входа в аккаунт, персональной домашней ленты, подписок, плейлистов, офлайн-загрузок, фонового воспроизведения и локальной истории. Главная показывает результаты запроса «популярное», а не персональные рекомендации YouTube.
 
-Requirements: JDK 17 and Android SDK Platform 35.
+## Сборка
+
+Нужны JDK 17 и Android SDK Platform 35.
 
 ```bash
 ./gradlew assembleDebug
 ```
 
-Install the APK from `app/build/outputs/apk/debug/app-debug.apk`. GitHub Actions also builds this APK on pushes and pull requests; download the `mepipe-debug-apk` artifact from the workflow run.
+APK появится по пути `app/build/outputs/apk/debug/app-debug.apk`. GitHub Actions собирает приложение при push и pull request; APK можно скачать из артефактов [успешной сборки alpha.2](https://github.com/avasil307-design/MePIPE-yt/actions/runs/42236213060).
 
-## License and upstream
+## Установка alpha.2
 
-This app uses [NewPipe Extractor](https://github.com/TeamNewPipe/NewPipeExtractor) (GPL-3.0-or-later); see [`LICENSE`](LICENSE). NewPipe is an independent open-source Android project by NewPipe e.V. MePIPE is not affiliated with NewPipe e.V. or YouTube. The extractor parses public YouTube pages and endpoints; it is not an official YouTube API client.
+Скачайте APK из артефактов GitHub Actions и установите его на Android. Это отладочная сборка, подписанная debug-ключом; она предназначена для тестирования и не является production-релизом.
+
+## Лицензия
+
+Проект распространяется по GPL-3.0-or-later; текст лицензии — в [`LICENSE`](LICENSE). Используемая библиотека [NewPipe Extractor](https://github.com/TeamNewPipe/NewPipeExtractor) также распространяется по GPL-3.0-or-later.
