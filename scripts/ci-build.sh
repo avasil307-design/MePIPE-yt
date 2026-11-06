@@ -13,9 +13,12 @@ if [[ $gradle_status -ne 0 ]]; then
   tail -n 100 "$log_file" >> "${GITHUB_STEP_SUMMARY:-/dev/null}"
   echo '```' >> "${GITHUB_STEP_SUMMARY:-/dev/null}"
 
-  while IFS= read -r diagnostic; do
-    echo "::error title=Gradle diagnostic::$diagnostic"
-  done < <(grep -Ei '(^e: |^FAILURE:|^\* What went wrong:|^Execution failed for task|^Could not resolve |^Could not find |requires|minCompileSdk|compileSdkVersion|AAR metadata|Android Gradle plugin)' "$log_file" | tail -n 40 || true)
+  while IFS= read -r line; do
+    line=${line//'%'/'%25'}
+    line=${line//$'\r'/'%0D'}
+    line=${line//$'\n'/'%0A'}
+    echo "::notice title=Gradle output::$line"
+  done < <(tail -n 40 "$log_file")
 fi
 
 exit "$gradle_status"
