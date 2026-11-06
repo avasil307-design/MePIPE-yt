@@ -36,4 +36,14 @@ PY
   done < <(grep -E '(^e: |^w: |\.kt:[0-9]+:[0-9]+|Unresolved reference|Type mismatch|Overload resolution ambiguity)' "$log_file" | tail -n 30 || true)
 fi
 
+if [[ $gradle_status -eq 0 ]]; then
+  sdk_root="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-}}"
+  apksigner="$sdk_root/build-tools/35.0.0/apksigner"
+  if [[ ! -x "$apksigner" ]]; then
+    echo "Android apksigner not found at $apksigner" >&2
+    exit 1
+  fi
+  "$apksigner" verify --print-certs app/build/outputs/apk/debug/app-debug.apk
+fi
+
 exit "$gradle_status"

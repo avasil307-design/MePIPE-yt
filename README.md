@@ -36,7 +36,7 @@ APK появится по пути `app/build/outputs/apk/debug/app-debug.apk`. 
 
 ## Установка alpha.2
 
-Скачайте APK из артефактов GitHub Actions и установите его на Android. Это отладочная сборка, подписанная debug-ключом; она предназначена для тестирования и не является production-релизом.
+Для ручной установки скачайте [подписанный debug APK из релиза](https://github.com/avasil307-design/MePIPE-yt/releases/download/v0.1.0-alpha.2/mepipe-v0.1.0-alpha.2-debug.apk). Это тестовая сборка, подписанная debug-ключом, а не production-релиз. APK с названием `app-release-unsigned.apk` не устанавливается напрямую: он специально оставлен без подписи для сборки F-Droid.
 
 ## Лицензия
 
