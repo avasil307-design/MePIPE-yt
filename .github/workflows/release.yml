@@ -1,0 +1,50 @@
+name: Publish Android alpha release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  publish-alpha:
+    name: Build and publish alpha APK
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out tagged source
+        uses: actions/checkout@v7
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "17"
+          cache: gradle
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v4
+
+      - name: Install Android SDK packages
+        run: sdkmanager "platform-tools" "platforms;android-35" "build-tools;35.0.0"
+
+      - name: Build alpha APK
+        run: ./gradlew --no-daemon assembleDebug
+
+      - name: Prepare release assets
+        run: |
+          apk="mepipe-${GITHUB_REF_NAME}-debug.apk"
+          cp app/build/outputs/apk/debug/app-debug.apk "$apk"
+          sha256sum "$apk" > "$apk.sha256"
+
+      - name: Publish GitHub prerelease
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" \
+            "mepipe-${GITHUB_REF_NAME}-debug.apk" \
+            "mepipe-${GITHUB_REF_NAME}-debug.apk.sha256" \
+            --title "MePIPE ${GITHUB_REF_NAME} — First Alpha" \
+            --notes-file .github/RELEASE_NOTES_ALPHA1.md \
+            --prerelease
