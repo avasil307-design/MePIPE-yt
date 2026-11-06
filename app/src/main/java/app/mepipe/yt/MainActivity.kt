@@ -638,7 +638,7 @@ private fun VideoPlayer(source: PlaybackSource) {
         factory = { viewContext ->
             PlayerView(viewContext).apply {
                 useController = true
-                player = exoPlayer
+                this.player = exoPlayer
             }
         },
         update = { it.player = exoPlayer },

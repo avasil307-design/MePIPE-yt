@@ -78,9 +78,10 @@ internal object YouTubeRepository {
             .maxByOrNull { stream ->
                 stream.resolution.takeWhile(Char::isDigit).toIntOrNull() ?: 0
             }
-        if (muxedVideo != null && muxedVideo.url.isNotBlank()) {
+        val muxedVideoUrl = muxedVideo?.url?.takeIf { it.isNotBlank() }
+        if (muxedVideo != null && muxedVideoUrl != null) {
             return PlaybackSource(
-                url = muxedVideo.url,
+                url = muxedVideoUrl,
                 mimeType = muxedVideo.format?.mimeType,
             )
         }
