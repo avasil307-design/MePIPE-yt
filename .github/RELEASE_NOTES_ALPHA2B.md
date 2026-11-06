@@ -8,6 +8,6 @@ Download **`mepipe-v0.1.0-alpha.2b-debug.apk`**. It is signed with the Android d
 
 ### F-Droid/source build
 
-**`mepipe-v0.1.0-alpha.2b-fdroid-unsigned.apk` is intentionally unsigned and cannot be installed directly.** It is provided for source-build testing; F-Droid signs its own builds.
+F-Droid builds the app from source and signs its APK with the F-Droid key. An unsigned APK is not installable directly; do not use an unsigned build for manual installation.
 
-Both APKs have adjacent `.sha256` checksum files. This is an early alpha debug release, not a production build.
+The debug APK has an adjacent `.sha256` checksum file. This is an early alpha debug release, not a production build.
