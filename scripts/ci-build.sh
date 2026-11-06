@@ -15,7 +15,7 @@ if [[ $gradle_status -ne 0 ]]; then
 
   while IFS= read -r diagnostic; do
     echo "::error title=Gradle diagnostic::$diagnostic"
-  done < <(grep -E '(^e: |^FAILURE:|^\* What went wrong:|^Execution failed for task|^Could not resolve |^Could not find )' "$log_file" | tail -n 20 || true)
+  done < <(grep -Ei '(^e: |^FAILURE:|^\* What went wrong:|^Execution failed for task|^Could not resolve |^Could not find |requires|minCompileSdk|compileSdkVersion|AAR metadata|Android Gradle plugin)' "$log_file" | tail -n 40 || true)
 fi
 
 exit "$gradle_status"
