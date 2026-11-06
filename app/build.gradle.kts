@@ -12,8 +12,8 @@ android {
         applicationId = "app.mepipe.yt"
         minSdk = 26
         targetSdk = 35
-        versionCode = 4
-        versionName = "0.1.0-alpha.2c"
+        versionCode = 5
+        versionName = "0.1.0-alpha.2d"
     }
 
     buildFeatures {
@@ -21,6 +21,7 @@ android {
     }
 
     compileOptions {
+        isCoreLibraryDesugaringEnabled = true
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
     }
@@ -31,6 +32,8 @@ android {
 }
 
 dependencies {
+    coreLibraryDesugaring("com.android.tools:desugar_jdk_libs_nio:2.1.5")
+
     val composeBom = platform("androidx.compose:compose-bom:2025.01.00")
     implementation(composeBom)
     androidTestImplementation(composeBom)

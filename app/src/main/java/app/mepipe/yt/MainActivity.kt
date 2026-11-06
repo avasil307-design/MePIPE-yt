@@ -282,7 +282,8 @@ private fun MePipeApp(
                 ?: "Не удалось получить результаты. Проверьте подключение и попробуйте ещё раз."
         } catch (error: LinkageError) {
             Log.e("MePIPE", "Search dependency failed to load", error)
-            searchError = "Не удалось загрузить компонент поиска. Перезапустите приложение или сообщите об ошибке."
+            val details = error.message?.take(180)?.let { ": $it" }.orEmpty()
+            searchError = "Ошибка совместимости поиска (${error.javaClass.simpleName}$details). Пришлите этот текст разработчику."
         } finally {
             isLoading = false
         }
@@ -303,7 +304,8 @@ private fun MePipeApp(
                     ?: "Не удалось получить видеопоток с YouTube."
             } catch (error: LinkageError) {
                 Log.e("MePIPE", "Playback dependency failed to load", error)
-                playbackError = "Не удалось загрузить компонент воспроизведения. Сообщите об ошибке."
+                val details = error.message?.take(180)?.let { ": $it" }.orEmpty()
+                playbackError = "Ошибка совместимости воспроизведения (${error.javaClass.simpleName}$details). Пришлите этот текст разработчику."
             } finally {
                 isResolvingVideo = false
             }

@@ -4,9 +4,9 @@
 
 > MePIPE не связан с NewPipe e.V. или YouTube и не использует официальный YouTube Data API. Доступность YouTube и извлечения потоков зависит от сети и региона; изменения YouTube могут временно нарушить работу.
 
-## Возможности alpha.2c
+## Возможности alpha.2d
 
-Это обновление alpha.2b с актуальным commit NewPipe Extractor, новым User-Agent и более понятной диагностикой пустого ответа YouTube. Поиск всё ещё может зависеть от ограничений IP-адреса VPN.
+Это обновление alpha.2c: включён Java API desugaring для совместимости свежего NewPipe Extractor с Android 10 и старше. Если поиск снова упрётся в ошибку совместимости, приложение покажет её тип и сообщение вместо общей заглушки. Ограничения IP-адреса VPN всё ещё возможны.
 
 - Поиск реальных публичных видео YouTube без API-ключа и входа в аккаунт.
 - Превью, названия, каналы, длительность и доступные сведения о просмотрах/дате.
@@ -36,9 +36,9 @@ Google-подписки требуют официальной OAuth-интегр
 
 Debug APK появится по пути `app/build/outputs/apk/debug/app-debug.apk`, unsigned F-Droid APK — в `app/build/outputs/apk/release/app-release-unsigned.apk`. GitHub Actions проверяет подпись debug APK и собирает обе версии.
 
-## Установка alpha.2c
+## Установка alpha.2d
 
-Для ручной установки скачайте [подписанный debug APK из релиза alpha.2c](https://github.com/avasil307-design/MePIPE-yt/releases/download/v0.1.0-alpha.2c/mepipe-v0.1.0-alpha.2c-debug.apk). Это тестовая сборка, не production-релиз. Если на устройстве установлена другая MePIPE debug-сборка, сначала удалите её: debug-сертификаты разных CI-запусков могут отличаться. APK с `fdroid-unsigned` в названии не устанавливается напрямую — F-Droid подпишет свою сборку.
+Для ручной установки скачайте [подписанный debug APK из релиза alpha.2d](https://github.com/avasil307-design/MePIPE-yt/releases/download/v0.1.0-alpha.2d/mepipe-v0.1.0-alpha.2d-debug.apk). Это тестовая сборка, не production-релиз. Если на устройстве установлена другая MePIPE debug-сборка, сначала удалите её: debug-сертификаты разных CI-запусков могут отличаться. APK с `fdroid-unsigned` в названии не устанавливается напрямую — F-Droid подпишет свою сборку.
 
 ## Лицензия
 

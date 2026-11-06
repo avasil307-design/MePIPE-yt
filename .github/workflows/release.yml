@@ -51,5 +51,5 @@ jobs:
             "mepipe-${GITHUB_REF_NAME}-fdroid-unsigned.apk" \
             "mepipe-${GITHUB_REF_NAME}-fdroid-unsigned.apk.sha256" \
             --title "MePIPE ${GITHUB_REF_NAME}" \
-            --notes-file .github/RELEASE_NOTES_ALPHA2C.md \
+            --notes-file .github/RELEASE_NOTES_ALPHA2D.md \
             --prerelease
