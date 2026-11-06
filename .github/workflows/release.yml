@@ -30,7 +30,7 @@ jobs:
         run: sdkmanager "platform-tools" "platforms;android-35" "build-tools;35.0.0"
 
       - name: Build alpha APK
-        run: ./gradlew --no-daemon assembleDebug
+        run: bash scripts/ci-build.sh
 
       - name: Prepare release assets
         run: |

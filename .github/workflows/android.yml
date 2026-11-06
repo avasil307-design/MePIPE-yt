@@ -31,7 +31,7 @@ jobs:
         run: sdkmanager "platform-tools" "platforms;android-35" "build-tools;35.0.0"
 
       - name: Build debug APK
-        run: ./gradlew --no-daemon assembleDebug
+        run: bash scripts/ci-build.sh
 
       - name: Upload debug APK
         uses: actions/upload-artifact@v7
