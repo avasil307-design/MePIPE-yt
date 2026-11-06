@@ -12,7 +12,7 @@ An Android-first NewPipe-inspired client UI experiment using Jetpack Compose and
 
 The visual structure follows familiar mainstream video-app patterns rather than the more utility-focused layout common in Pipe clients, while keeping MePIPE branding distinct.
 
-The feed is currently sample content. This starter does **not** yet include NewPipe Extractor, network playback, subscriptions, or downloads; those need to be integrated as follow-up work. This repository does not currently contain the upstream NewPipe source code.
+The app now searches public YouTube results through NewPipe Extractor, loads real thumbnails, resolves playable streams, and plays them with ExoPlayer. This is an independent lightweight client, not the upstream NewPipe app. Subscriptions, account login, offline downloads, and background playback are not included yet. Network access and YouTube availability can vary by region, and YouTube changes may temporarily break extraction.
 
 ## Build
 
@@ -24,6 +24,6 @@ Requirements: JDK 17 and Android SDK Platform 35.
 
 Install the APK from `app/build/outputs/apk/debug/app-debug.apk`. GitHub Actions also builds this APK on pushes and pull requests; download the `mepipe-debug-apk` artifact from the workflow run.
 
-## Upstream project
+## License and upstream
 
-NewPipe is an independent open-source Android project by NewPipe e.V. See <https://github.com/TeamNewPipe/NewPipe> for its source and license. MePIPE is not affiliated with NewPipe e.V. or YouTube.
+This app uses [NewPipe Extractor](https://github.com/TeamNewPipe/NewPipeExtractor) (GPL-3.0-or-later); see [`LICENSE`](LICENSE). NewPipe is an independent open-source Android project by NewPipe e.V. MePIPE is not affiliated with NewPipe e.V. or YouTube. The extractor parses public YouTube pages and endpoints; it is not an official YouTube API client.

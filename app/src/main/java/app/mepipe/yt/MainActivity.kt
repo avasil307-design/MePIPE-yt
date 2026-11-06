@@ -25,20 +25,17 @@ import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.AccountCircle
-import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.Cast
+import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.Home
-import androidx.compose.material.icons.filled.MoreVert
-import androidx.compose.material.icons.filled.NotificationsNone
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.PlayCircleOutline
 import androidx.compose.material.icons.filled.Search
-import androidx.compose.material.icons.filled.Subscriptions
-import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material3.AssistChip
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.AssistChipDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
@@ -50,26 +47,42 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import coil.compose.AsyncImage
+import com.google.android.exoplayer2.ExoPlayer
+import com.google.android.exoplayer2.MediaItem
+import com.google.android.exoplayer2.source.DefaultMediaSourceFactory
+import com.google.android.exoplayer2.ui.PlayerView
+import com.google.android.exoplayer2.upstream.DefaultDataSource
+import com.google.android.exoplayer2.upstream.DefaultHttpDataSource
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -229,81 +242,130 @@ private fun MePipeTheme(palette: ThemePalette, content: @Composable () -> Unit) 
     MaterialTheme(colorScheme = if (dark) palette.dark else palette.light, content = content)
 }
 
-private data class Video(
-    val title: String,
-    val channel: String,
-    val details: String,
-    val duration: String,
-    val category: String,
-    val symbol: String,
-    val colors: List<Color>,
-)
-
-private val videos = listOf(
-    Video("Собрал рабочее место мечты — без лишних покупок", "Дизайн по делу", "128 тыс. просмотров · 4 часа назад", "18:42", "Технологии", "⌘", listOf(Color(0xFF334A34), Color(0xFF9DAE78))),
-    Video("Почему города становятся тише?", "Научно", "86 тыс. просмотров · 1 день назад", "12:07", "Наука", "≈", listOf(Color(0xFF315C50), Color(0xFFA8C6A0))),
-    Video("Готовим идеальную пасту за 15 минут", "Домашняя кухня", "42 тыс. просмотров · 2 дня назад", "15:31", "Кулинария", "✳", listOf(Color(0xFF8E5B3F), Color(0xFFD9B77E))),
-    Video("Прогулка по Липецку: город с неожиданной стороны", "Пешком", "19 тыс. просмотров · 3 дня назад", "24:16", "Путешествия", "↗", listOf(Color(0xFF47705D), Color(0xFFC2C784))),
-    Video("Минимализм в Android: настраиваем телефон", "Тихий режим", "203 тыс. просмотров · 5 дней назад", "09:54", "Технологии", "◈", listOf(Color(0xFF56664B), Color(0xFFB6C09A))),
-)
-
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun MePipeApp(
     currentPalette: ThemePalette,
     onPaletteSelected: (ThemePalette) -> Unit,
 ) {
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
     var selectedTab by remember { mutableIntStateOf(0) }
-    var selectedCategory by remember { mutableStateOf("Все") }
-    var query by remember { mutableStateOf("") }
+    var query by remember { mutableStateOf("популярное") }
     var searchOpen by remember { mutableStateOf(false) }
-    val categories = listOf("Все", "Музыка", "Технологии", "Наука", "Кулинария", "Путешествия")
-    val filtered = videos.filter { video ->
-        (selectedCategory == "Все" || video.category == selectedCategory) &&
-            (query.isBlank() || video.title.contains(query, ignoreCase = true) || video.channel.contains(query, ignoreCase = true))
+    var results by remember { mutableStateOf<List<VideoResult>>(emptyList()) }
+    var isLoading by remember { mutableStateOf(false) }
+    var searchError by remember { mutableStateOf<String?>(null) }
+    var activeVideo by remember { mutableStateOf<VideoResult?>(null) }
+    var playbackSource by remember { mutableStateOf<PlaybackSource?>(null) }
+    var isResolvingVideo by remember { mutableStateOf(false) }
+    var playbackError by remember { mutableStateOf<String?>(null) }
+
+    suspend fun searchYouTube(term: String) {
+        val cleanTerm = term.trim()
+        if (cleanTerm.isBlank()) {
+            searchError = "Введите название видео или канала"
+            return
+        }
+        query = cleanTerm
+        searchOpen = false
+        activeVideo = null
+        isLoading = true
+        searchError = null
+        results = emptyList()
+        try {
+            results = withContext(Dispatchers.IO) { YouTubeRepository.search(cleanTerm) }
+        } catch (exception: Exception) {
+            searchError = exception.message?.takeIf { it.isNotBlank() }
+                ?: "Не удалось получить результаты. Проверьте подключение и попробуйте ещё раз."
+        } finally {
+            isLoading = false
+        }
     }
+
+    fun openVideo(video: VideoResult) {
+        activeVideo = video
+        playbackSource = null
+        playbackError = null
+        isResolvingVideo = true
+        scope.launch {
+            try {
+                playbackSource = withContext(Dispatchers.IO) {
+                    YouTubeRepository.playbackSource(video.url)
+                }
+            } catch (exception: Exception) {
+                playbackError = exception.message?.takeIf { it.isNotBlank() }
+                    ?: "Не удалось получить видеопоток с YouTube."
+            } finally {
+                isResolvingVideo = false
+            }
+        }
+    }
+
+    LaunchedEffect(Unit) { searchYouTube("популярное") }
 
     Scaffold(
         topBar = {
             TopAppBar(
-                title = {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Box(
-                            modifier = Modifier.size(width = 31.dp, height = 24.dp)
-                                .clip(RoundedCornerShape(8.dp))
-                                .background(MaterialTheme.colorScheme.primary),
-                            contentAlignment = Alignment.Center,
-                        ) {
-                            Icon(Icons.Default.PlayArrow, contentDescription = null, tint = MaterialTheme.colorScheme.onPrimary, modifier = Modifier.size(20.dp))
+                navigationIcon = {
+                    if (activeVideo != null) {
+                        IconButton(onClick = { activeVideo = null }) {
+                            Icon(Icons.Default.ArrowBack, contentDescription = "Назад")
                         }
-                        Spacer(Modifier.width(8.dp))
-                        Text("MePIPE", fontWeight = FontWeight.Bold, letterSpacing = (-0.7).sp, fontSize = 21.sp)
+                    }
+                },
+                title = {
+                    if (activeVideo != null) {
+                        Text(activeVideo!!.title, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    } else {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Box(
+                                modifier = Modifier.size(width = 31.dp, height = 24.dp)
+                                    .clip(RoundedCornerShape(8.dp))
+                                    .background(MaterialTheme.colorScheme.primary),
+                                contentAlignment = Alignment.Center,
+                            ) {
+                                Icon(Icons.Default.PlayArrow, contentDescription = null, tint = MaterialTheme.colorScheme.onPrimary, modifier = Modifier.size(20.dp))
+                            }
+                            Spacer(Modifier.width(8.dp))
+                            Text("MePIPE", fontWeight = FontWeight.Bold, letterSpacing = (-0.7).sp, fontSize = 21.sp)
+                        }
                     }
                 },
                 actions = {
-                    IconButton(onClick = { }) { Icon(Icons.Default.Cast, contentDescription = "Трансляция") }
-                    IconButton(onClick = { }) { Icon(Icons.Default.NotificationsNone, contentDescription = "Уведомления") }
-                    IconButton(onClick = { searchOpen = !searchOpen }) { Icon(Icons.Default.Search, contentDescription = "Поиск") }
-                    IconButton(onClick = { selectedTab = 4 }) { Icon(Icons.Default.AccountCircle, contentDescription = "Профиль") }
+                    if (activeVideo == null) {
+                        IconButton(onClick = { searchOpen = !searchOpen; selectedTab = 1 }) {
+                            Icon(Icons.Default.Search, contentDescription = "Поиск на YouTube")
+                        }
+                        IconButton(onClick = { selectedTab = 2 }) {
+                            Icon(Icons.Default.Person, contentDescription = "Темы и настройки")
+                        }
+                    }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.surface),
             )
         },
         bottomBar = {
             NavigationBar(containerColor = MaterialTheme.colorScheme.surface) {
-                val tabs = listOf("Главная", "Shorts", "Создать", "Подписки", "Вы")
-                val icons = listOf(Icons.Default.Home, Icons.Default.PlayCircleOutline, Icons.Default.Add, Icons.Default.Subscriptions, Icons.Default.Person)
+                val tabs = listOf("Главная", "Поиск", "Вы")
+                val icons = listOf(Icons.Default.Home, Icons.Default.Search, Icons.Default.Person)
                 tabs.forEachIndexed { index, label ->
                     NavigationBarItem(
                         selected = selectedTab == index,
-                        onClick = { selectedTab = index },
-                        icon = {
-                            if (index == 2) {
-                                Surface(shape = CircleShape, color = MaterialTheme.colorScheme.onSurface) {
-                                    Icon(icons[index], contentDescription = label, modifier = Modifier.padding(7.dp), tint = MaterialTheme.colorScheme.surface)
-                                }
-                            } else Icon(icons[index], contentDescription = label)
+                        onClick = {
+                            selectedTab = index
+                            if (index == 0) {
+                                activeVideo = null
+                                searchOpen = false
+                                scope.launch { searchYouTube("популярное") }
+                            }
+                            if (index == 1) {
+                                activeVideo = null
+                                searchOpen = true
+                            }
+                            if (index == 2) { activeVideo = null; searchOpen = false }
                         },
+                        icon = { Icon(icons[index], contentDescription = label) },
                         label = { Text(label, maxLines = 1) },
                     )
                 }
@@ -315,54 +377,85 @@ private fun MePipeApp(
             modifier = Modifier.fillMaxSize().padding(innerPadding),
             contentPadding = PaddingValues(bottom = 18.dp),
         ) {
-            if (selectedTab == 4) {
-                item { ThemeSettings(currentPalette, onPaletteSelected) }
-            } else {
-                if (searchOpen) {
+            when {
+                selectedTab == 2 -> item { ThemeSettings(currentPalette, onPaletteSelected) }
+                activeVideo != null -> {
+                    val video = activeVideo!!
                     item {
-                        OutlinedTextField(
-                            value = query,
-                            onValueChange = { query = it },
-                            modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 5.dp),
-                            placeholder = { Text("Поиск видео") },
-                            leadingIcon = { Icon(Icons.Default.Search, contentDescription = null) },
-                            singleLine = true,
-                            shape = RoundedCornerShape(28.dp),
-                        )
+                        Column {
+                            when {
+                                playbackSource != null -> VideoPlayer(playbackSource!!)
+                                isResolvingVideo -> LoadingPanel("Получаю видеопоток с YouTube…")
+                                playbackError != null -> ErrorPanel(playbackError!!, onRetry = { openVideo(video) })
+                            }
+                            Column(Modifier.padding(horizontal = 16.dp, vertical = 14.dp)) {
+                                Text(video.title, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+                                Spacer(Modifier.height(7.dp))
+                                Text(video.channel, style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                Text(video.metadata, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            }
+                        }
                     }
                 }
-                item {
-                    Row(
-                        modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(horizontal = 12.dp, vertical = 5.dp),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        categories.forEach { category ->
-                            val selected = selectedCategory == category
-                            AssistChip(
-                                onClick = { selectedCategory = category },
-                                label = { Text(category) },
-                                colors = AssistChipDefaults.assistChipColors(
-                                    containerColor = if (selected) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.surfaceContainerHigh,
-                                    labelColor = if (selected) MaterialTheme.colorScheme.surface else MaterialTheme.colorScheme.onSurface,
-                                ),
-                                border = null,
+                else -> {
+                    if (searchOpen) {
+                        item {
+                            OutlinedTextField(
+                                value = query,
+                                onValueChange = { query = it },
+                                modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 5.dp),
+                                placeholder = { Text("Искать видео на YouTube") },
+                                leadingIcon = { Icon(Icons.Default.Search, contentDescription = null) },
+                                trailingIcon = {
+                                    IconButton(onClick = { scope.launch { searchYouTube(query) } }) {
+                                        Icon(Icons.Default.Search, contentDescription = "Начать поиск")
+                                    }
+                                },
+                                singleLine = true,
+                                shape = RoundedCornerShape(28.dp),
+                                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
+                                keyboardActions = KeyboardActions(onSearch = { scope.launch { searchYouTube(query) } }),
                             )
                         }
-                        IconButton(onClick = { }) { Icon(Icons.Default.Tune, contentDescription = "Фильтры") }
                     }
-                }
-                if (filtered.isEmpty()) {
-                    item {
-                        Column(modifier = Modifier.fillMaxWidth().padding(32.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-                            Text("Ничего не найдено", style = MaterialTheme.typography.titleMedium)
-                            Text("Попробуйте другой запрос или категорию", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    if (selectedTab == 0 && !searchOpen) {
+                        item {
+                            Row(
+                                modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(horizontal = 12.dp, vertical = 5.dp),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            ) {
+                                listOf("популярное", "музыка", "технологии", "новости", "игры", "наука").forEach { suggestion ->
+                                    val selected = query.equals(suggestion, ignoreCase = true)
+                                    AssistChip(
+                                        onClick = { scope.launch { searchYouTube(suggestion) } },
+                                        label = { Text(suggestion.replaceFirstChar { it.uppercase() }) },
+                                        colors = AssistChipDefaults.assistChipColors(
+                                            containerColor = if (selected) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.surfaceContainerHigh,
+                                            labelColor = if (selected) MaterialTheme.colorScheme.surface else MaterialTheme.colorScheme.onSurface,
+                                        ),
+                                        border = null,
+                                    )
+                                }
+                            }
                         }
                     }
-                } else {
-                    itemsIndexed(filtered) { index, video ->
-                        VideoCard(video)
-                        if (index == 1) ShortsShelf()
+                    item {
+                        Column(Modifier.fillMaxWidth().padding(start = 18.dp, end = 12.dp, top = 17.dp, bottom = 8.dp)) {
+                            Text("Результаты YouTube", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+                            if (query.isNotBlank()) {
+                                Text("Запрос: $query", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            }
+                        }
+                    }
+                    when {
+                        isLoading -> item { LoadingPanel("Ищем видео на YouTube…") }
+                        searchError != null -> item {
+                            ErrorPanel(searchError!!, onRetry = { scope.launch { searchYouTube(query) } })
+                        }
+                        results.isEmpty() -> item {
+                            Text("По этому запросу ничего не найдено", modifier = Modifier.padding(24.dp), color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                        else -> itemsIndexed(results) { _, video -> VideoCard(video, onClick = { openVideo(video) }) }
                     }
                 }
             }
@@ -450,75 +543,104 @@ private fun ThemeSettings(
 }
 
 @Composable
-private fun VideoCard(video: Video) {
-    Column(modifier = Modifier.fillMaxWidth().clickable { }.padding(bottom = 18.dp)) {
+private fun VideoCard(video: VideoResult, onClick: () -> Unit) {
+    Column(modifier = Modifier.fillMaxWidth().clickable(onClick = onClick).padding(bottom = 18.dp)) {
         Box(
             modifier = Modifier.fillMaxWidth().aspectRatio(16f / 9f)
-                .background(Brush.linearGradient(video.colors)),
+                .background(MaterialTheme.colorScheme.surfaceContainerHigh),
         ) {
-            Box(
-                modifier = Modifier.fillMaxSize().background(
-                    Brush.verticalGradient(listOf(Color.Transparent, Color.Black.copy(alpha = 0.25f))),
-                ),
-            )
-            Text(video.symbol, modifier = Modifier.align(Alignment.Center), color = Color.White.copy(alpha = 0.88f), fontSize = 78.sp, fontWeight = FontWeight.Light)
-            Surface(
-                modifier = Modifier.align(Alignment.BottomEnd).padding(9.dp),
-                color = Color.Black.copy(alpha = 0.82f),
-                shape = RoundedCornerShape(5.dp),
-            ) {
-                Text(video.duration, modifier = Modifier.padding(horizontal = 6.dp, vertical = 3.dp), color = Color.White, style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.SemiBold)
+            if (video.thumbnailUrl != null) {
+                AsyncImage(
+                    model = video.thumbnailUrl,
+                    contentDescription = "Превью: ${video.title}",
+                    modifier = Modifier.fillMaxSize(),
+                    contentScale = ContentScale.Crop,
+                )
+            }
+            if (video.duration.isNotBlank()) {
+                Surface(
+                    modifier = Modifier.align(Alignment.BottomEnd).padding(9.dp),
+                    color = Color.Black.copy(alpha = 0.82f),
+                    shape = RoundedCornerShape(5.dp),
+                ) {
+                    Text(video.duration, modifier = Modifier.padding(horizontal = 6.dp, vertical = 3.dp), color = Color.White, style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.SemiBold)
+                }
             }
         }
         Row(modifier = Modifier.fillMaxWidth().padding(start = 12.dp, end = 4.dp, top = 10.dp), verticalAlignment = Alignment.Top) {
             Surface(modifier = Modifier.size(40.dp), shape = CircleShape, color = MaterialTheme.colorScheme.tertiaryContainer) {
                 Box(contentAlignment = Alignment.Center) {
-                    Text(video.channel.take(1), color = MaterialTheme.colorScheme.onTertiaryContainer, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleMedium)
+                    Text(video.channel.take(1).uppercase(), color = MaterialTheme.colorScheme.onTertiaryContainer, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleMedium)
                 }
             }
             Column(modifier = Modifier.weight(1f).padding(start = 11.dp, end = 6.dp)) {
                 Text(video.title, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold, maxLines = 2, overflow = TextOverflow.Ellipsis)
                 Spacer(Modifier.height(4.dp))
-                Text("${video.channel} · ${video.details}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                Text("${video.channel} · ${video.metadata}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 2, overflow = TextOverflow.Ellipsis)
             }
-            IconButton(onClick = { }) { Icon(Icons.Default.MoreVert, contentDescription = "Действия с видео", tint = MaterialTheme.colorScheme.onSurfaceVariant) }
+            Icon(Icons.Default.PlayCircleOutline, contentDescription = "Смотреть", modifier = Modifier.padding(9.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
         }
     }
 }
 
 @Composable
-private fun ShortsShelf() {
-    Column(modifier = Modifier.fillMaxWidth().padding(top = 5.dp, bottom = 22.dp)) {
-        Row(
-            modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Icon(Icons.Default.PlayCircleOutline, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
-            Spacer(Modifier.width(8.dp))
-            Text("Shorts", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
-        }
-        Row(
-            modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(horizontal = 12.dp),
-            horizontalArrangement = Arrangement.spacedBy(10.dp),
-        ) {
-            listOf("Маленькие привычки — большие перемены", "Липецк за 30 секунд", "Идеальный кофе дома").forEachIndexed { index, title ->
-                val colors = listOf(
-                    listOf(Color(0xFF48633E), Color(0xFFB1C88A)),
-                    listOf(Color(0xFF315F54), Color(0xFFA5C7A3)),
-                    listOf(Color(0xFF687346), Color(0xFFD0C78E)),
-                )[index]
-                Column(modifier = Modifier.width(158.dp)) {
-                    Box(
-                        modifier = Modifier.fillMaxWidth().height(232.dp).clip(RoundedCornerShape(14.dp))
-                            .background(Brush.linearGradient(colors)),
-                    ) {
-                        Text(listOf("✦", "↗", "☕")[index], modifier = Modifier.align(Alignment.Center), color = Color.White, fontSize = 54.sp)
-                        Icon(Icons.Default.PlayArrow, contentDescription = "Смотреть Shorts", modifier = Modifier.align(Alignment.BottomEnd).padding(9.dp), tint = Color.White)
-                    }
-                    Text(title, modifier = Modifier.padding(top = 7.dp, start = 2.dp), style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Medium, maxLines = 2, overflow = TextOverflow.Ellipsis)
-                    Text("${(index + 2) * 14} тыс. просмотров", modifier = Modifier.padding(start = 2.dp, top = 2.dp), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                }
-            }
-        }
+private fun LoadingPanel(message: String) {
+    Column(
+        modifier = Modifier.fillMaxWidth().padding(vertical = 36.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
+        CircularProgressIndicator()
+        Text(message, color = MaterialTheme.colorScheme.onSurfaceVariant)
     }
+}
+
+@Composable
+private fun ErrorPanel(message: String, onRetry: () -> Unit) {
+    Column(
+        modifier = Modifier.fillMaxWidth().padding(horizontal = 24.dp, vertical = 28.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(10.dp),
+    ) {
+        Text("Не удалось загрузить YouTube", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+        Text(message, color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodyMedium)
+        TextButton(onClick = onRetry) { Text("Повторить") }
+    }
+}
+
+@Composable
+private fun VideoPlayer(source: PlaybackSource) {
+    val context = LocalContext.current
+    val player = remember(context) {
+        val httpFactory = DefaultHttpDataSource.Factory()
+            .setUserAgent("Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 Chrome/130.0.0.0 Mobile Safari/537.36")
+            .setDefaultRequestProperties(mapOf("Referer" to "https://www.youtube.com/"))
+        val dataSourceFactory = DefaultDataSource.Factory(context, httpFactory)
+        val mediaSourceFactory = DefaultMediaSourceFactory(dataSourceFactory)
+        ExoPlayer.Builder(context).setMediaSourceFactory(mediaSourceFactory).build()
+    }
+
+    DisposableEffect(player) {
+        onDispose { player.release() }
+    }
+    LaunchedEffect(source) {
+        val mediaItem = MediaItem.Builder().setUri(source.url).apply {
+            source.mimeType?.let(::setMimeType)
+        }.build()
+        player.setMediaItem(mediaItem)
+        player.prepare()
+        player.playWhenReady = true
+    }
+    val exoPlayer = player
+    AndroidView(
+        modifier = Modifier.fillMaxWidth().aspectRatio(16f / 9f)
+            .background(Color.Black),
+        factory = { viewContext ->
+            PlayerView(viewContext).apply {
+                useController = true
+                player = exoPlayer
+            }
+        },
+        update = { it.player = exoPlayer },
+    )
 }

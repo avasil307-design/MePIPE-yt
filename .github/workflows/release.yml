@@ -45,6 +45,6 @@ jobs:
           gh release create "$GITHUB_REF_NAME" \
             "mepipe-${GITHUB_REF_NAME}-debug.apk" \
             "mepipe-${GITHUB_REF_NAME}-debug.apk.sha256" \
-            --title "MePIPE ${GITHUB_REF_NAME} — First Alpha" \
-            --notes-file .github/RELEASE_NOTES_ALPHA1.md \
+            --title "MePIPE ${GITHUB_REF_NAME}" \
+            --notes-file .github/RELEASE_NOTES_ALPHA2.md \
             --prerelease
