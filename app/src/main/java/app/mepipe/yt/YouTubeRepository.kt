@@ -1,5 +1,6 @@
 package app.mepipe.yt
 
+import android.util.Log
 import okhttp3.OkHttpClient
 import okhttp3.RequestBody.Companion.toRequestBody
 import org.schabi.newpipe.extractor.NewPipe
@@ -30,8 +31,8 @@ internal data class PlaybackSource(
 
 internal object YouTubeRepository {
     private const val USER_AGENT =
-        "Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 " +
-            "(KHTML, like Gecko) Chrome/130.0.0.0 Mobile Safari/537.36"
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:153.0) " +
+            "Gecko/20100101 Firefox/153.0"
 
     @Volatile
     private var initialized = false
@@ -50,7 +51,7 @@ internal object YouTubeRepository {
         val service = ServiceList.YouTube
         val queryHandler = service.searchQHFactory.fromQuery(query)
         val info = SearchInfo.getInfo(service, queryHandler)
-        return info.relatedItems
+        val videos = info.relatedItems
             .filterIsInstance<StreamInfoItem>()
             .map { item ->
                 val thumbnail = item.thumbnails.maxByOrNull { it.width }?.url
@@ -67,6 +68,10 @@ internal object YouTubeRepository {
                     url = item.url,
                 )
             }
+        if (videos.isEmpty()) {
+            Log.w("MePIPE", "YouTube search response contained no video items")
+        }
+        return videos
     }
 
     @Throws(IOException::class, Exception::class)

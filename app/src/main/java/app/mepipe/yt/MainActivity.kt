@@ -277,6 +277,7 @@ private fun MePipeApp(
         try {
             results = withContext(Dispatchers.IO) { YouTubeRepository.search(cleanTerm) }
         } catch (exception: Exception) {
+            Log.e("MePIPE", "YouTube search failed", exception)
             searchError = exception.message?.takeIf { it.isNotBlank() }
                 ?: "Не удалось получить результаты. Проверьте подключение и попробуйте ещё раз."
         } catch (error: LinkageError) {
@@ -460,7 +461,7 @@ private fun MePipeApp(
                             ErrorPanel(searchError!!, onRetry = { scope.launch { searchYouTube(query) } })
                         }
                         results.isEmpty() -> item {
-                            Text("По этому запросу ничего не найдено", modifier = Modifier.padding(24.dp), color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            EmptyResultsPanel(query) { scope.launch { searchYouTube(query) } }
                         }
                         else -> itemsIndexed(results) { _, video -> VideoCard(video, onClick = { openVideo(video) }) }
                     }
@@ -599,6 +600,23 @@ private fun LoadingPanel(message: String) {
     ) {
         CircularProgressIndicator()
         Text(message, color = MaterialTheme.colorScheme.onSurfaceVariant)
+    }
+}
+
+@Composable
+private fun EmptyResultsPanel(query: String, onRetry: () -> Unit) {
+    Column(
+        modifier = Modifier.fillMaxWidth().padding(horizontal = 24.dp, vertical = 28.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(10.dp),
+    ) {
+        Text("YouTube не вернул видео", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+        Text(
+            "Проверьте запрос «$query». Если он обычный, общий IP VPN мог попасть под ограничение YouTube. Попробуйте другой сервер VPN или повторите позже.",
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            style = MaterialTheme.typography.bodyMedium,
+        )
+        TextButton(onClick = onRetry) { Text("Повторить") }
     }
 }
 

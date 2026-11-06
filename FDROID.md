@@ -8,7 +8,7 @@ MePIPE не использует Google Mobile Services, Firebase, Play Services
 ./gradlew :app:verifyFdroidRuntimeDependencies :app:assembleRelease
 ```
 
-F-Droid должен собрать приложение из исходного кода и подписать APK своим ключом. APK `app/build/outputs/apk/release/app-release-unsigned.apk`, собранный без подписи, сам по себе не предназначен для установки пользователями. Для ручной проверки скачивайте только подписанный [`debug APK из GitHub Release`](https://github.com/avasil307-design/MePIPE-yt/releases/download/v0.1.0-alpha.2b/mepipe-v0.1.0-alpha.2b-debug.apk); CI отдельно проверяет его сертификат и выдаёт отдельные артефакты для installable debug и unsigned F-Droid builds.
+F-Droid должен собрать приложение из исходного кода и подписать APK своим ключом. APK `app/build/outputs/apk/release/app-release-unsigned.apk`, собранный без подписи, сам по себе не предназначен для установки пользователями. Для ручной проверки скачивайте только подписанный [`debug APK из GitHub Release`](https://github.com/avasil307-design/MePIPE-yt/releases/download/v0.1.0-alpha.2c/mepipe-v0.1.0-alpha.2c-debug.apk); CI отдельно проверяет его сертификат и выдаёт отдельные артефакты для installable debug и unsigned F-Droid builds.
 
 **Приложение пока не опубликовано в каталоге F-Droid.** Для публикации нужно отдельно отправить metadata и build recipe в [репозиторий fdroiddata](https://gitlab.com/fdroid/fdroiddata), после проверки F-Droid. MePIPE работает с YouTube — сервисом с ограничениями; перед подачей необходимо явно указать соответствующий Anti-Feature (`NonFreeNet`) и проверить текущие правила каталога.
 
