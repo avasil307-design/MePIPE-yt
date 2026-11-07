@@ -1,6 +1,7 @@
 package app.mepipe.yt
 
 import android.content.Context
+import android.content.Intent
 import android.os.Bundle
 import android.util.Log
 import androidx.activity.ComponentActivity
@@ -38,6 +39,7 @@ import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.AssistChipDefaults
+import androidx.compose.material3.Button
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -77,18 +79,39 @@ import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
 import com.google.android.exoplayer2.ExoPlayer
 import com.google.android.exoplayer2.MediaItem
+import com.google.android.exoplayer2.PlaybackException
+import com.google.android.exoplayer2.Player
 import com.google.android.exoplayer2.source.DefaultMediaSourceFactory
 import com.google.android.exoplayer2.ui.PlayerView
 import com.google.android.exoplayer2.upstream.DefaultDataSource
 import com.google.android.exoplayer2.upstream.DefaultHttpDataSource
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeout
+import kotlinx.coroutines.flow.collect
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContent { MePipeRoot() }
+        publishOAuthRedirect(intent)
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        publishOAuthRedirect(intent)
+    }
+
+    private fun publishOAuthRedirect(intent: Intent?) {
+        val uri = intent?.data ?: return
+        if (uri.scheme == "app.mepipe.yt" && uri.host == "oauth2redirect") {
+            GoogleAccountRepository.publishRedirect(uri)
+        }
     }
 }
 
@@ -252,15 +275,25 @@ private fun MePipeApp(
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     var selectedTab by remember { mutableIntStateOf(0) }
+    var oauthClientId by remember {
+        mutableStateOf(context.getSharedPreferences("mepipe_settings", Context.MODE_PRIVATE)
+            .getString("google_oauth_client_id", "").orEmpty())
+    }
+    var accountSubscriptions by remember { mutableStateOf<List<YouTubeSubscription>>(emptyList()) }
+    var accountConnected by remember { mutableStateOf(GoogleAccountRepository.hasRefreshToken(context)) }
+    var accountLoading by remember { mutableStateOf(false) }
+    var accountError by remember { mutableStateOf<String?>(null) }
     var query by remember { mutableStateOf("популярное") }
     var searchOpen by remember { mutableStateOf(false) }
     var results by remember { mutableStateOf<List<VideoResult>>(emptyList()) }
+    var recommendationTopics by remember { mutableStateOf(RecommendationStore.topics(context)) }
     var isLoading by remember { mutableStateOf(false) }
     var searchError by remember { mutableStateOf<String?>(null) }
     var activeVideo by remember { mutableStateOf<VideoResult?>(null) }
     var playbackSource by remember { mutableStateOf<PlaybackSource?>(null) }
     var isResolvingVideo by remember { mutableStateOf(false) }
     var playbackError by remember { mutableStateOf<String?>(null) }
+    var playbackJob by remember { mutableStateOf<Job?>(null) }
 
     suspend fun searchYouTube(term: String) {
         val cleanTerm = term.trim()
@@ -276,6 +309,12 @@ private fun MePipeApp(
         results = emptyList()
         try {
             results = withContext(Dispatchers.IO) { YouTubeRepository.search(cleanTerm) }
+            if (results.isNotEmpty()) {
+                RecommendationStore.recordSuccessfulSearch(context, cleanTerm)
+                recommendationTopics = RecommendationStore.topics(context)
+            }
+        } catch (exception: CancellationException) {
+            throw exception
         } catch (exception: Exception) {
             Log.e("MePIPE", "YouTube search failed", exception)
             searchError = exception.message?.takeIf { it.isNotBlank() }
@@ -290,16 +329,26 @@ private fun MePipeApp(
     }
 
     fun openVideo(video: VideoResult) {
+        playbackJob?.cancel()
         activeVideo = video
         playbackSource = null
         playbackError = null
         isResolvingVideo = true
-        scope.launch {
+        playbackJob = scope.launch {
             try {
-                playbackSource = withContext(Dispatchers.IO) {
-                    YouTubeRepository.playbackSource(video.url)
+                val source = withTimeout(75_000L) {
+                    withContext(Dispatchers.IO) {
+                        YouTubeRepository.playbackSource(video.url)
+                    }
                 }
+                if (activeVideo?.url == video.url) playbackSource = source
+            } catch (exception: TimeoutCancellationException) {
+                Log.e("MePIPE", "Timed out resolving YouTube stream for ${video.url}", exception)
+                playbackError = "YouTube не прислал видеопоток за 75 секунд. Попробуйте ещё раз или смените VPN-сервер."
+            } catch (exception: CancellationException) {
+                throw exception
             } catch (exception: Exception) {
+                Log.e("MePIPE", "Failed to resolve YouTube stream for ${video.url}", exception)
                 playbackError = exception.message?.takeIf { it.isNotBlank() }
                     ?: "Не удалось получить видеопоток с YouTube."
             } catch (error: LinkageError) {
@@ -307,19 +356,84 @@ private fun MePipeApp(
                 val details = error.message?.take(180)?.let { ": $it" }.orEmpty()
                 playbackError = "Ошибка совместимости воспроизведения (${error.javaClass.simpleName}$details). Пришлите этот текст разработчику."
             } finally {
-                isResolvingVideo = false
+                if (activeVideo?.url == video.url) isResolvingVideo = false
             }
         }
     }
 
+    fun saveOAuthClientId(value: String) {
+        oauthClientId = value
+        context.getSharedPreferences("mepipe_settings", Context.MODE_PRIVATE)
+            .edit().putString("google_oauth_client_id", value.trim()).apply()
+    }
+
+    fun beginGoogleSignIn() {
+        accountError = null
+        try {
+            if (oauthClientId.isBlank()) {
+                accountError = "Сначала укажите OAuth Client ID из Google Cloud Console."
+                return
+            }
+            val authorizationUri = GoogleAccountRepository.authorizationUri(context, oauthClientId)
+            context.startActivity(Intent(Intent.ACTION_VIEW, authorizationUri))
+        } catch (exception: Exception) {
+            accountError = exception.message ?: "Не удалось открыть безопасный вход Google."
+        }
+    }
+
+    fun disconnectGoogle() {
+        GoogleAccountRepository.disconnect(context)
+        accountSubscriptions = emptyList()
+        accountConnected = false
+        accountError = null
+    }
+
     LaunchedEffect(Unit) { searchYouTube("популярное") }
+
+    LaunchedEffect(Unit) {
+        if (GoogleAccountRepository.redirects.value == null && accountConnected && oauthClientId.isNotBlank()) {
+            accountLoading = true
+            try {
+                accountSubscriptions = GoogleAccountRepository.refreshSubscriptions(context, oauthClientId)
+            } catch (exception: CancellationException) {
+                throw exception
+            } catch (exception: Exception) {
+                Log.e("MePIPE", "Failed to refresh Google subscriptions", exception)
+                accountError = exception.message ?: "Не удалось обновить подписки Google."
+            } finally {
+                accountLoading = false
+            }
+        }
+        GoogleAccountRepository.redirects.collect { redirect ->
+            if (redirect != null) {
+                accountLoading = true
+                accountError = null
+                try {
+                    accountSubscriptions = GoogleAccountRepository.finishAuthorization(context, oauthClientId, redirect)
+                    accountConnected = true
+                } catch (exception: CancellationException) {
+                    throw exception
+                } catch (exception: Exception) {
+                    Log.e("MePIPE", "Google OAuth callback failed", exception)
+                    accountError = exception.message ?: "Не удалось завершить вход Google."
+                } finally {
+                    accountLoading = false
+                    GoogleAccountRepository.clearRedirect(redirect)
+                }
+            }
+        }
+    }
 
     Scaffold(
         topBar = {
             TopAppBar(
                 navigationIcon = {
                     if (activeVideo != null) {
-                        IconButton(onClick = { activeVideo = null }) {
+                        IconButton(onClick = {
+                            playbackJob?.cancel()
+                            activeVideo = null
+                            isResolvingVideo = false
+                        }) {
                             Icon(Icons.Default.ArrowBack, contentDescription = "Назад")
                         }
                     }
@@ -363,6 +477,8 @@ private fun MePipeApp(
                     NavigationBarItem(
                         selected = selectedTab == index,
                         onClick = {
+                            playbackJob?.cancel()
+                            isResolvingVideo = false
                             selectedTab = index
                             if (index == 0) {
                                 activeVideo = null
@@ -388,15 +504,51 @@ private fun MePipeApp(
             contentPadding = PaddingValues(bottom = 18.dp),
         ) {
             when {
-                selectedTab == 2 -> item { ThemeSettings(currentPalette, onPaletteSelected) }
+                selectedTab == 2 -> item {
+                    Column {
+                        GoogleAccountSettings(
+                            clientId = oauthClientId,
+                            onClientIdChange = ::saveOAuthClientId,
+                            connected = accountConnected,
+                            loading = accountLoading,
+                            error = accountError,
+                            subscriptions = accountSubscriptions,
+                            onConnect = ::beginGoogleSignIn,
+                            onRefresh = {
+                                scope.launch {
+                                    accountLoading = true
+                                    accountError = null
+                                    try {
+                                        accountSubscriptions = GoogleAccountRepository.refreshSubscriptions(context, oauthClientId)
+                                        accountConnected = true
+                                    } catch (exception: CancellationException) {
+                                        throw exception
+                                    } catch (exception: Exception) {
+                                        accountError = exception.message ?: "Не удалось обновить подписки Google."
+                                    } finally {
+                                        accountLoading = false
+                                    }
+                                }
+                            },
+                            onDisconnect = ::disconnectGoogle,
+                        )
+                        ThemeSettings(currentPalette, onPaletteSelected) {
+                            RecommendationStore.clear(context)
+                            recommendationTopics = RecommendationStore.topics(context)
+                        }
+                    }
+                }
                 activeVideo != null -> {
                     val video = activeVideo!!
                     item {
                         Column {
                             when {
-                                playbackSource != null -> VideoPlayer(playbackSource!!)
-                                isResolvingVideo -> LoadingPanel("Получаю видеопоток с YouTube…")
                                 playbackError != null -> ErrorPanel(playbackError!!, onRetry = { openVideo(video) })
+                                playbackSource != null -> VideoPlayer(playbackSource!!) { error ->
+                                    playbackSource = null
+                                    playbackError = error
+                                }
+                                isResolvingVideo -> LoadingPanel("Получаю видеопоток с YouTube…")
                             }
                             Column(Modifier.padding(horizontal = 16.dp, vertical = 14.dp)) {
                                 Text(video.title, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
@@ -434,7 +586,7 @@ private fun MePipeApp(
                                 modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(horizontal = 12.dp, vertical = 5.dp),
                                 horizontalArrangement = Arrangement.spacedBy(8.dp),
                             ) {
-                                listOf("популярное", "музыка", "технологии", "новости", "игры", "наука").forEach { suggestion ->
+                                recommendationTopics.forEach { suggestion ->
                                     val selected = query.equals(suggestion, ignoreCase = true)
                                     AssistChip(
                                         onClick = { scope.launch { searchYouTube(suggestion) } },
@@ -451,7 +603,11 @@ private fun MePipeApp(
                     }
                     item {
                         Column(Modifier.fillMaxWidth().padding(start = 18.dp, end = 12.dp, top = 17.dp, bottom = 8.dp)) {
-                            Text("Результаты YouTube", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+                            Text(
+                                if (selectedTab == 0 && !searchOpen) "Рекомендации для вас" else "Результаты YouTube",
+                                style = MaterialTheme.typography.titleLarge,
+                                fontWeight = FontWeight.Bold,
+                            )
                             if (query.isNotBlank()) {
                                 Text("Запрос: $query", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                             }
@@ -474,9 +630,93 @@ private fun MePipeApp(
 }
 
 @Composable
+private fun GoogleAccountSettings(
+    clientId: String,
+    onClientIdChange: (String) -> Unit,
+    connected: Boolean,
+    loading: Boolean,
+    error: String?,
+    subscriptions: List<YouTubeSubscription>,
+    onConnect: () -> Unit,
+    onRefresh: () -> Unit,
+    onDisconnect: () -> Unit,
+) {
+    Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 18.dp, vertical = 18.dp)) {
+        Text("Аккаунт Google", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
+        Text(
+            "Вход открывается в системном браузере и использует OAuth с PKCE. Пароль приложение не видит; токен обновления хранится в Android Keystore. Google Play Services не требуются.",
+            modifier = Modifier.padding(top = 8.dp),
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            style = MaterialTheme.typography.bodyMedium,
+        )
+        OutlinedTextField(
+            value = clientId,
+            onValueChange = onClientIdChange,
+            modifier = Modifier.fillMaxWidth().padding(top = 14.dp),
+            label = { Text("Google OAuth Client ID") },
+            placeholder = { Text("…apps.googleusercontent.com") },
+            singleLine = true,
+        )
+        Text(
+            "Нужен OAuth Client ID проекта, где включён YouTube Data API v3 и зарегистрирован redirect URI: ${GoogleAccountRepository.REDIRECT_URI}. Client ID не является паролем.",
+            modifier = Modifier.padding(top = 6.dp),
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            style = MaterialTheme.typography.bodySmall,
+        )
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(top = 12.dp),
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Button(onClick = if (connected) onRefresh else onConnect, enabled = !loading) {
+                Text(if (connected) "Обновить подписки" else "Подключить Google")
+            }
+            if (connected) TextButton(onClick = onDisconnect, enabled = !loading) { Text("Отключить") }
+            if (loading) CircularProgressIndicator(modifier = Modifier.size(24.dp), strokeWidth = 2.dp)
+        }
+        if (error != null) {
+            Text(
+                error,
+                modifier = Modifier.padding(top = 8.dp),
+                color = MaterialTheme.colorScheme.error,
+                style = MaterialTheme.typography.bodySmall,
+            )
+        }
+        if (connected) {
+            Text(
+                "Google-аккаунт подключён",
+                modifier = Modifier.padding(top = 14.dp),
+                color = MaterialTheme.colorScheme.primary,
+                style = MaterialTheme.typography.labelLarge,
+            )
+            Text(
+                "Подписки YouTube${if (subscriptions.isNotEmpty()) " · ${subscriptions.size}" else ""}",
+                modifier = Modifier.padding(top = 18.dp),
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.SemiBold,
+            )
+            if (subscriptions.isEmpty() && !loading) {
+                Text("Подписки не найдены. Нажмите «Обновить подписки».", modifier = Modifier.padding(top = 6.dp), color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+            subscriptions.take(40).forEach { subscription ->
+                Text(
+                    subscription.title,
+                    modifier = Modifier.fillMaxWidth().padding(vertical = 7.dp),
+                    style = MaterialTheme.typography.bodyLarge,
+                )
+            }
+            if (subscriptions.size > 40) {
+                Text("Показаны первые 40 каналов из ${subscriptions.size}.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+        }
+    }
+}
+
+@Composable
 private fun ThemeSettings(
     currentPalette: ThemePalette,
     onPaletteSelected: (ThemePalette) -> Unit,
+    onClearRecommendations: () -> Unit,
 ) {
     Column(modifier = Modifier.fillMaxWidth().padding(top = 20.dp, bottom = 28.dp)) {
         Text(
@@ -549,6 +789,9 @@ private fun ThemeSettings(
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
+        TextButton(onClick = onClearRecommendations, modifier = Modifier.padding(horizontal = 12.dp)) {
+            Text("Очистить историю рекомендаций")
+        }
     }
 }
 
@@ -636,7 +879,7 @@ private fun ErrorPanel(message: String, onRetry: () -> Unit) {
 }
 
 @Composable
-private fun VideoPlayer(source: PlaybackSource) {
+private fun VideoPlayer(source: PlaybackSource, onPlaybackError: (String) -> Unit) {
     val context = LocalContext.current
     val player = remember(context) {
         val httpFactory = DefaultHttpDataSource.Factory()
@@ -648,7 +891,18 @@ private fun VideoPlayer(source: PlaybackSource) {
     }
 
     DisposableEffect(player) {
-        onDispose { player.release() }
+        val listener = object : Player.Listener {
+            override fun onPlayerError(error: PlaybackException) {
+                Log.e("MePIPE", "ExoPlayer failed", error)
+                val details = error.message?.take(160)?.let { ": $it" }.orEmpty()
+                onPlaybackError("Плеер не смог открыть поток (${error.errorCodeName}$details).")
+            }
+        }
+        player.addListener(listener)
+        onDispose {
+            player.removeListener(listener)
+            player.release()
+        }
     }
     LaunchedEffect(source) {
         val mediaItem = MediaItem.Builder().setUri(source.url).apply {

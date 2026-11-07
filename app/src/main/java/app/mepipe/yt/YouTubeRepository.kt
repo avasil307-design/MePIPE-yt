@@ -78,11 +78,11 @@ internal object YouTubeRepository {
     fun playbackSource(videoUrl: String): PlaybackSource {
         initialize()
         val info = StreamInfo.getInfo(ServiceList.YouTube, videoUrl)
-        val muxedVideo = info.videoStreams
-            .filterNot { it.isVideoOnly }
-            .maxByOrNull { stream ->
-                stream.resolution.takeWhile(Char::isDigit).toIntOrNull() ?: 0
-            }
+        val muxedStreams = info.videoStreams.filterNot { it.isVideoOnly }
+        val mp4Streams = muxedStreams.filter { it.format?.mimeType == "video/mp4" }
+        val muxedVideo = (mp4Streams.ifEmpty { muxedStreams }).maxByOrNull { stream ->
+            stream.resolution.takeWhile(Char::isDigit).toIntOrNull() ?: 0
+        }
         val muxedVideoUrl = muxedVideo?.url?.takeIf { it.isNotBlank() }
         if (muxedVideo != null && muxedVideoUrl != null) {
             return PlaybackSource(
@@ -120,8 +120,9 @@ internal object YouTubeRepository {
 
     private class ExtractorDownloader : Downloader() {
         private val client = OkHttpClient.Builder()
-            .connectTimeout(20, TimeUnit.SECONDS)
-            .readTimeout(30, TimeUnit.SECONDS)
+            .connectTimeout(15, TimeUnit.SECONDS)
+            .readTimeout(20, TimeUnit.SECONDS)
+            .callTimeout(25, TimeUnit.SECONDS)
             .followRedirects(true)
             .build()
 

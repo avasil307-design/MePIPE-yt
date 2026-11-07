@@ -45,11 +45,15 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
+          notes_file=".github/RELEASE_NOTES_ALPHA2D.md"
+          if [[ "$GITHUB_REF_NAME" == "v0.2.0-alpha.1" ]]; then
+            notes_file=".github/RELEASE_NOTES_020_ALPHA1.md"
+          fi
           gh release create "$GITHUB_REF_NAME" \
             "mepipe-${GITHUB_REF_NAME}-debug.apk" \
             "mepipe-${GITHUB_REF_NAME}-debug.apk.sha256" \
             "mepipe-${GITHUB_REF_NAME}-fdroid-unsigned.apk" \
             "mepipe-${GITHUB_REF_NAME}-fdroid-unsigned.apk.sha256" \
             --title "MePIPE ${GITHUB_REF_NAME}" \
-            --notes-file .github/RELEASE_NOTES_ALPHA2D.md \
+            --notes-file "$notes_file" \
             --prerelease
