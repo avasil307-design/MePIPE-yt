@@ -1,6 +1,6 @@
 # Подготовка MePIPE к F-Droid
 
-MePIPE не использует Google Mobile Services, Firebase, Play Services, Google Analytics или Google Sign-In SDK. Экспериментальный вход в Google 0.2.0-alpha.1 открывается во внешнем браузере через OAuth/PKCE и требует собственной совместимой публичной OAuth-конфигурации; совместимость redirect URI и подписи F-Droid ещё должна быть подтверждена. В проекте есть ExoPlayer (`com.google.android.exoplayer`) — это библиотека воспроизведения с открытым исходным кодом, а не GMS.
+MePIPE не использует Google Mobile Services, Firebase, Play Services, Google Analytics или Google Sign-In SDK. Экспериментальный вход в Google (0.2.0-alpha) открывается во внешнем браузере через OAuth/PKCE и требует собственной совместимой публичной OAuth-конфигурации; совместимость redirect URI и подписи F-Droid ещё должна быть подтверждена. В проекте есть ExoPlayer (`com.google.android.exoplayer`) — это библиотека воспроизведения с открытым исходным кодом, а не GMS.
 
 Проверка зависимостей и сборка unsigned release APK:
 

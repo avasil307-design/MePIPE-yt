@@ -46,9 +46,10 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           notes_file=".github/RELEASE_NOTES_ALPHA2D.md"
-          if [[ "$GITHUB_REF_NAME" == "v0.2.0-alpha.1" ]]; then
-            notes_file=".github/RELEASE_NOTES_020_ALPHA1.md"
-          fi
+          case "$GITHUB_REF_NAME" in
+            v0.2.0-alpha.1) notes_file=".github/RELEASE_NOTES_020_ALPHA1.md" ;;
+            v0.2.0-alpha.2) notes_file=".github/RELEASE_NOTES_020_ALPHA2.md" ;;
+          esac
           gh release create "$GITHUB_REF_NAME" \
             "mepipe-${GITHUB_REF_NAME}-debug.apk" \
             "mepipe-${GITHUB_REF_NAME}-debug.apk.sha256" \

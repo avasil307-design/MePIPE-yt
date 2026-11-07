@@ -293,6 +293,7 @@ private fun MePipeApp(
     var playbackSource by remember { mutableStateOf<PlaybackSource?>(null) }
     var isResolvingVideo by remember { mutableStateOf(false) }
     var playbackError by remember { mutableStateOf<String?>(null) }
+    var playbackDiagnostic by remember { mutableStateOf(YouTubeRepository.playbackDiagnostics.value) }
     var playbackJob by remember { mutableStateOf<Job?>(null) }
 
     suspend fun searchYouTube(term: String) {
@@ -330,6 +331,7 @@ private fun MePipeApp(
 
     fun openVideo(video: VideoResult) {
         playbackJob?.cancel()
+        val playbackAttempt = YouTubeRepository.beginPlaybackAttempt()
         activeVideo = video
         playbackSource = null
         playbackError = null
@@ -338,13 +340,14 @@ private fun MePipeApp(
             try {
                 val source = withTimeout(75_000L) {
                     withContext(Dispatchers.IO) {
-                        YouTubeRepository.playbackSource(video.url)
+                        YouTubeRepository.playbackSource(video.url, playbackAttempt)
                     }
                 }
                 if (activeVideo?.url == video.url) playbackSource = source
             } catch (exception: TimeoutCancellationException) {
                 Log.e("MePIPE", "Timed out resolving YouTube stream for ${video.url}", exception)
-                playbackError = "YouTube не прислал видеопоток за 75 секунд. Попробуйте ещё раз или смените VPN-сервер."
+                val lastStep = YouTubeRepository.playbackDiagnostics.value.take(180)
+                playbackError = "Не удалось получить поток за 75 секунд. Последний этап: $lastStep. Проверьте соединение/VPN и повторите попытку."
             } catch (exception: CancellationException) {
                 throw exception
             } catch (exception: Exception) {
@@ -389,6 +392,10 @@ private fun MePipeApp(
     }
 
     LaunchedEffect(Unit) { searchYouTube("популярное") }
+
+    LaunchedEffect(Unit) {
+        YouTubeRepository.playbackDiagnostics.collect { playbackDiagnostic = it }
+    }
 
     LaunchedEffect(Unit) {
         if (GoogleAccountRepository.redirects.value == null && accountConnected && oauthClientId.isNotBlank()) {
@@ -548,7 +555,7 @@ private fun MePipeApp(
                                     playbackSource = null
                                     playbackError = error
                                 }
-                                isResolvingVideo -> LoadingPanel("Получаю видеопоток с YouTube…")
+                                isResolvingVideo -> LoadingPanel(playbackDiagnostic)
                             }
                             Column(Modifier.padding(horizontal = 16.dp, vertical = 14.dp)) {
                                 Text(video.title, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
