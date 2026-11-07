@@ -4,6 +4,7 @@ import android.content.Context
 import android.content.Intent
 import android.os.Bundle
 import android.util.Log
+import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.background
@@ -40,6 +41,8 @@ import androidx.compose.material3.AssistChip
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.AssistChipDefaults
 import androidx.compose.material3.Button
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -59,6 +62,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -77,12 +81,16 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
+import com.google.android.exoplayer2.C
 import com.google.android.exoplayer2.ExoPlayer
 import com.google.android.exoplayer2.MediaItem
+import com.google.android.exoplayer2.PlaybackParameters
 import com.google.android.exoplayer2.PlaybackException
 import com.google.android.exoplayer2.Player
 import com.google.android.exoplayer2.source.DefaultMediaSourceFactory
+import com.google.android.exoplayer2.trackselection.DefaultTrackSelector
 import com.google.android.exoplayer2.ui.PlayerView
+import com.google.android.exoplayer2.ui.TrackSelectionDialogBuilder
 import com.google.android.exoplayer2.upstream.DefaultDataSource
 import com.google.android.exoplayer2.upstream.DefaultHttpDataSource
 import kotlinx.coroutines.CancellationException
@@ -295,6 +303,14 @@ private fun MePipeApp(
     var playbackError by remember { mutableStateOf<String?>(null) }
     var playbackDiagnostic by remember { mutableStateOf(YouTubeRepository.playbackDiagnostics.value) }
     var playbackJob by remember { mutableStateOf<Job?>(null) }
+    var videoComments by remember { mutableStateOf<List<YouTubeComment>>(emptyList()) }
+    var commentCount by remember { mutableIntStateOf(0) }
+    var commentsDisabled by remember { mutableStateOf(false) }
+    var commentsHaveMore by remember { mutableStateOf(false) }
+    var commentsLoading by remember { mutableStateOf(false) }
+    var commentsError by remember { mutableStateOf<String?>(null) }
+    var commentsJob by remember { mutableStateOf<Job?>(null) }
+    var commentsRequestId by remember { mutableIntStateOf(0) }
 
     suspend fun searchYouTube(term: String) {
         val cleanTerm = term.trim()
@@ -329,10 +345,50 @@ private fun MePipeApp(
         }
     }
 
+    fun loadComments(video: VideoResult, append: Boolean = false) {
+        if (append && commentsLoading) return
+        commentsJob?.cancel()
+        val requestId = ++commentsRequestId
+        commentsLoading = true
+        commentsError = null
+        if (!append) {
+            videoComments = emptyList()
+            commentCount = 0
+            commentsDisabled = false
+            commentsHaveMore = false
+        }
+        commentsJob = scope.launch {
+            try {
+                val page = withTimeout(45_000L) {
+                    withContext(Dispatchers.IO) {
+                        if (append) YouTubeRepository.loadMoreComments(video.url)
+                        else YouTubeRepository.loadComments(video.url)
+                    }
+                }
+                if (activeVideo?.url == video.url && commentsRequestId == requestId) {
+                    videoComments = if (append) videoComments + page.comments else page.comments
+                    commentCount = page.totalCount
+                    commentsDisabled = page.commentsDisabled
+                    commentsHaveMore = page.hasMore
+                }
+            } catch (exception: CancellationException) {
+                throw exception
+            } catch (exception: Exception) {
+                Log.e("MePIPE", "Failed to load comments for ${video.url}", exception)
+                if (activeVideo?.url == video.url && commentsRequestId == requestId) {
+                    commentsError = exception.message ?: "Не удалось загрузить комментарии."
+                }
+            } finally {
+                if (activeVideo?.url == video.url && commentsRequestId == requestId) commentsLoading = false
+            }
+        }
+    }
+
     fun openVideo(video: VideoResult) {
         playbackJob?.cancel()
         val playbackAttempt = YouTubeRepository.beginPlaybackAttempt()
         activeVideo = video
+        loadComments(video)
         playbackSource = null
         playbackError = null
         isResolvingVideo = true
@@ -438,6 +494,8 @@ private fun MePipeApp(
                     if (activeVideo != null) {
                         IconButton(onClick = {
                             playbackJob?.cancel()
+                            commentsJob?.cancel()
+                            commentsLoading = false
                             activeVideo = null
                             isResolvingVideo = false
                         }) {
@@ -485,6 +543,8 @@ private fun MePipeApp(
                         selected = selectedTab == index,
                         onClick = {
                             playbackJob?.cancel()
+                            commentsJob?.cancel()
+                            commentsLoading = false
                             isResolvingVideo = false
                             selectedTab = index
                             if (index == 0) {
@@ -563,6 +623,16 @@ private fun MePipeApp(
                                 Text(video.channel, style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                                 Text(video.metadata, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                             }
+                            CommentsSection(
+                                comments = videoComments,
+                                totalCount = commentCount,
+                                disabled = commentsDisabled,
+                                loading = commentsLoading,
+                                error = commentsError,
+                                hasMore = commentsHaveMore,
+                                onRetry = { loadComments(video) },
+                                onLoadMore = { loadComments(video, append = true) },
+                            )
                         }
                     }
                 }
@@ -886,23 +956,125 @@ private fun ErrorPanel(message: String, onRetry: () -> Unit) {
 }
 
 @Composable
+private fun CommentsSection(
+    comments: List<YouTubeComment>,
+    totalCount: Int,
+    disabled: Boolean,
+    loading: Boolean,
+    error: String?,
+    hasMore: Boolean,
+    onRetry: () -> Unit,
+    onLoadMore: () -> Unit,
+) {
+    Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp)) {
+        Text(
+            if (totalCount > 0) "Комментарии · ${totalCount}" else "Комментарии",
+            style = MaterialTheme.typography.titleLarge,
+            fontWeight = FontWeight.Bold,
+        )
+        Spacer(Modifier.height(12.dp))
+        when {
+            disabled -> Text("Комментарии отключены для этого видео.", color = MaterialTheme.colorScheme.onSurfaceVariant)
+            comments.isEmpty() && loading -> Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                CircularProgressIndicator(modifier = Modifier.size(20.dp), strokeWidth = 2.dp)
+                Text("Загружаю комментарии…", color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+            comments.isEmpty() && error != null -> Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                Text(error, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
+                TextButton(onClick = onRetry) { Text("Повторить") }
+            }
+            comments.isEmpty() -> Text("Пока нет доступных комментариев.", color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+        comments.forEach { comment ->
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(vertical = 10.dp),
+                verticalAlignment = Alignment.Top,
+            ) {
+                Surface(
+                    modifier = Modifier.size(38.dp),
+                    shape = CircleShape,
+                    color = MaterialTheme.colorScheme.secondaryContainer,
+                ) {
+                    Box(contentAlignment = Alignment.Center) {
+                        Text(
+                            comment.author.take(1).uppercase(),
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.onSecondaryContainer,
+                        )
+                    }
+                }
+                Column(modifier = Modifier.weight(1f).padding(start = 12.dp)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(comment.author, style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.SemiBold)
+                        if (comment.date.isNotBlank()) {
+                            Text(" · ${comment.date}", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                    }
+                    Spacer(Modifier.height(4.dp))
+                    Text(comment.text, style = MaterialTheme.typography.bodyMedium)
+                    if (comment.likes > 0) {
+                        Text("♥ ${comment.likes}", modifier = Modifier.padding(top = 5.dp), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                }
+            }
+        }
+        if (comments.isNotEmpty() && error != null) {
+            Text(error, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
+            TextButton(onClick = onRetry) { Text("Повторить загрузку") }
+        }
+        if (loading && comments.isNotEmpty()) {
+            CircularProgressIndicator(modifier = Modifier.size(22.dp).align(Alignment.CenterHorizontally), strokeWidth = 2.dp)
+        }
+        if (hasMore && !loading) TextButton(onClick = onLoadMore) { Text("Показать ещё комментарии") }
+    }
+}
+
+@Composable
 private fun VideoPlayer(source: PlaybackSource, onPlaybackError: (String) -> Unit) {
     val context = LocalContext.current
-    val player = remember(context) {
+    val trackSelector = remember(context) {
+        DefaultTrackSelector(context).apply {
+            setParameters(buildUponParameters().setPreferredAudioLanguage("ru").build())
+        }
+    }
+    val player = remember(context, trackSelector) {
         val httpFactory = DefaultHttpDataSource.Factory()
             .setUserAgent("Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 Chrome/130.0.0.0 Mobile Safari/537.36")
             .setDefaultRequestProperties(mapOf("Referer" to "https://www.youtube.com/"))
         val dataSourceFactory = DefaultDataSource.Factory(context, httpFactory)
         val mediaSourceFactory = DefaultMediaSourceFactory(dataSourceFactory)
-        ExoPlayer.Builder(context).setMediaSourceFactory(mediaSourceFactory).build()
+        ExoPlayer.Builder(context)
+            .setTrackSelector(trackSelector)
+            .setMediaSourceFactory(mediaSourceFactory)
+            .build()
     }
+    var isPlaying by remember { mutableStateOf(false) }
+    var playbackSpeed by remember { mutableFloatStateOf(1f) }
+    var speedMenuExpanded by remember { mutableStateOf(false) }
+    var fallbackUsed by remember(source) { mutableStateOf(false) }
 
     DisposableEffect(player) {
         val listener = object : Player.Listener {
+            override fun onIsPlayingChanged(isPlayingNow: Boolean) {
+                isPlaying = isPlayingNow
+            }
+
             override fun onPlayerError(error: PlaybackException) {
                 Log.e("MePIPE", "ExoPlayer failed", error)
-                val details = error.message?.take(160)?.let { ": $it" }.orEmpty()
-                onPlaybackError("Плеер не смог открыть поток (${error.errorCodeName}$details).")
+                val fallbackUrl = source.fallbackUrl
+                if (!fallbackUsed && !fallbackUrl.isNullOrBlank()) {
+                    fallbackUsed = true
+                    Log.w("MePIPE", "DASH playback failed; retrying the compatible muxed MP4 fallback")
+                    val fallbackItem = MediaItem.Builder().setUri(fallbackUrl).apply {
+                        source.fallbackMimeType?.let(::setMimeType)
+                    }.build()
+                    player.setMediaItem(fallbackItem)
+                    player.prepare()
+                    player.playWhenReady = true
+                } else {
+                    val details = error.message?.take(160)?.let { ": $it" }.orEmpty()
+                    onPlaybackError("Плеер не смог открыть поток (${error.errorCodeName}$details).")
+                }
             }
         }
         player.addListener(listener)
@@ -912,6 +1084,8 @@ private fun VideoPlayer(source: PlaybackSource, onPlaybackError: (String) -> Uni
         }
     }
     LaunchedEffect(source) {
+        playbackSpeed = 1f
+        player.setPlaybackParameters(PlaybackParameters(1f))
         val mediaItem = MediaItem.Builder().setUri(source.url).apply {
             source.mimeType?.let(::setMimeType)
         }.build()
@@ -919,16 +1093,77 @@ private fun VideoPlayer(source: PlaybackSource, onPlaybackError: (String) -> Uni
         player.prepare()
         player.playWhenReady = true
     }
-    val exoPlayer = player
-    AndroidView(
-        modifier = Modifier.fillMaxWidth().aspectRatio(16f / 9f)
-            .background(Color.Black),
-        factory = { viewContext ->
-            PlayerView(viewContext).apply {
-                useController = true
-                this.player = exoPlayer
+
+    Column(modifier = Modifier.fillMaxWidth()) {
+        AndroidView(
+            modifier = Modifier.fillMaxWidth().aspectRatio(16f / 9f).background(Color.Black),
+            factory = { viewContext ->
+                PlayerView(viewContext).apply {
+                    useController = true
+                    this.player = player
+                }
+            },
+            update = { it.player = player },
+        )
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp),
+            horizontalArrangement = Arrangement.SpaceEvenly,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            TextButton(onClick = {
+                player.seekTo((player.currentPosition - 10_000L).coerceAtLeast(0L))
+            }) { Text("−10 с") }
+            TextButton(onClick = {
+                if (player.isPlaying || player.playWhenReady) player.pause() else player.play()
+            }) { Text(if (isPlaying) "Пауза" else "Воспроизвести") }
+            TextButton(onClick = {
+                val target = player.currentPosition + 10_000L
+                val duration = player.duration
+                player.seekTo(if (duration == C.TIME_UNSET) target else target.coerceAtMost(duration))
+            }) { Text("+10 с") }
+        }
+        Row(
+            modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(horizontal = 8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Box {
+                TextButton(onClick = { speedMenuExpanded = true }) {
+                    Text("Скорость · ${playbackSpeed}×")
+                }
+                DropdownMenu(expanded = speedMenuExpanded, onDismissRequest = { speedMenuExpanded = false }) {
+                    listOf(0.5f, 0.75f, 1f, 1.25f, 1.5f, 2f).forEach { speed ->
+                        DropdownMenuItem(
+                            text = { Text("${speed}×") },
+                            onClick = {
+                                playbackSpeed = speed
+                                player.setPlaybackParameters(PlaybackParameters(speed))
+                                speedMenuExpanded = false
+                            },
+                        )
+                    }
+                }
             }
-        },
-        update = { it.player = exoPlayer },
-    )
+            TextButton(onClick = { showTrackSelectionDialog(context, player, C.TRACK_TYPE_AUDIO, "Аудиодорожка") }) {
+                Text("Аудио")
+            }
+            TextButton(onClick = { showTrackSelectionDialog(context, player, C.TRACK_TYPE_VIDEO, "Качество видео") }) {
+                Text("Качество")
+            }
+            TextButton(onClick = { showTrackSelectionDialog(context, player, C.TRACK_TYPE_TEXT, "Субтитры") }) {
+                Text("Субтитры")
+            }
+        }
+    }
+}
+
+private fun showTrackSelectionDialog(context: Context, player: ExoPlayer, trackType: Int, title: String) {
+    if (player.currentTracks.groups.none { it.type == trackType }) {
+        Toast.makeText(context, "Для этого потока нет доступных вариантов.", Toast.LENGTH_SHORT).show()
+        return
+    }
+    TrackSelectionDialogBuilder(context, title, player, trackType)
+        .setShowDisableOption(trackType == C.TRACK_TYPE_TEXT)
+        .setAllowAdaptiveSelections(trackType == C.TRACK_TYPE_VIDEO)
+        .build()
+        .show()
 }

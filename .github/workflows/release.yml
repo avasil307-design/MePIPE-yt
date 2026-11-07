@@ -49,6 +49,7 @@ jobs:
           case "$GITHUB_REF_NAME" in
             v0.2.0-alpha.1) notes_file=".github/RELEASE_NOTES_020_ALPHA1.md" ;;
             v0.2.0-alpha.2) notes_file=".github/RELEASE_NOTES_020_ALPHA2.md" ;;
+            v0.2.0-alpha.3) notes_file=".github/RELEASE_NOTES_020_ALPHA3.md" ;;
           esac
           gh release create "$GITHUB_REF_NAME" \
             "mepipe-${GITHUB_REF_NAME}-debug.apk" \

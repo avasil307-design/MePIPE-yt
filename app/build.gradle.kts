@@ -12,8 +12,8 @@ android {
         applicationId = "app.mepipe.yt"
         minSdk = 26
         targetSdk = 35
-        versionCode = 7
-        versionName = "0.2.0-alpha.2"
+        versionCode = 8
+        versionName = "0.2.0-alpha.3"
     }
 
     buildFeatures {

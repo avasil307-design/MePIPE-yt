@@ -1,21 +1,29 @@
 package app.mepipe.yt
 
+import android.net.Uri
 import android.os.SystemClock
+import android.text.Html
 import android.util.Log
 import okhttp3.OkHttpClient
 import okhttp3.RequestBody.Companion.toRequestBody
 import org.schabi.newpipe.extractor.NewPipe
 import org.schabi.newpipe.extractor.ServiceList
+import org.schabi.newpipe.extractor.comments.CommentsInfo
+import org.schabi.newpipe.extractor.comments.CommentsInfoItem
 import org.schabi.newpipe.extractor.downloader.Downloader
 import org.schabi.newpipe.extractor.downloader.Request as ExtractorRequest
 import org.schabi.newpipe.extractor.downloader.Response as ExtractorResponse
 import org.schabi.newpipe.extractor.exceptions.ReCaptchaException
+import org.schabi.newpipe.extractor.localization.ContentCountry
+import org.schabi.newpipe.extractor.localization.Localization
 import org.schabi.newpipe.extractor.search.SearchInfo
+import org.schabi.newpipe.extractor.stream.AudioTrackType
 import org.schabi.newpipe.extractor.stream.StreamInfo
 import org.schabi.newpipe.extractor.stream.StreamInfoItem
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import java.io.IOException
+import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicLong
 
@@ -31,6 +39,22 @@ internal data class VideoResult(
 internal data class PlaybackSource(
     val url: String,
     val mimeType: String? = null,
+    val fallbackUrl: String? = null,
+    val fallbackMimeType: String? = null,
+)
+
+internal data class YouTubeComment(
+    val author: String,
+    val text: String,
+    val date: String,
+    val likes: Int,
+)
+
+internal data class YouTubeCommentPage(
+    val comments: List<YouTubeComment>,
+    val totalCount: Int,
+    val commentsDisabled: Boolean,
+    val hasMore: Boolean,
 )
 
 internal object YouTubeRepository {
@@ -46,6 +70,7 @@ internal object YouTubeRepository {
     private val playbackAttemptOnThread = ThreadLocal<Long?>()
     private val playbackProgress = MutableStateFlow("Подготовка к запросу видеопотока")
     val playbackDiagnostics = playbackProgress.asStateFlow()
+    private val commentsInfoByVideo = ConcurrentHashMap<String, CommentsInfo>()
 
     fun beginPlaybackAttempt(): Long {
         val attempt = playbackSequence.incrementAndGet()
@@ -63,7 +88,11 @@ internal object YouTubeRepository {
     @Synchronized
     private fun initialize() {
         if (!initialized) {
-            NewPipe.init(ExtractorDownloader())
+            NewPipe.init(
+                ExtractorDownloader(),
+                Localization("ru", "RU"),
+                ContentCountry("RU"),
+            )
             initialized = true
         }
     }
@@ -76,6 +105,7 @@ internal object YouTubeRepository {
         val info = SearchInfo.getInfo(service, queryHandler)
         val videos = info.relatedItems
             .filterIsInstance<StreamInfoItem>()
+            .distinctBy { item -> Uri.parse(item.url).getQueryParameter("v") ?: item.url.trimEnd('/') }
             .map { item ->
                 val thumbnail = item.thumbnails.maxByOrNull { it.width }?.url
                 val views = item.viewCount.takeIf { it >= 0 }?.let(::formatViews)
@@ -120,6 +150,19 @@ internal object YouTubeRepository {
                 stream.resolution.takeWhile(Char::isDigit).toIntOrNull() ?: 0
             }
             val muxedVideoUrl = muxedVideo?.url?.takeIf { it.isNotBlank() }
+            val hasDubbedAudio = info.audioStreams.any { it.audioTrackType == AudioTrackType.DUBBED }
+            val hasQualityVariants = info.videoOnlyStreams.size > 1
+            val dashUrl = info.dashMpdUrl?.takeIf { it.isNotBlank() }
+            if ((hasDubbedAudio || hasQualityVariants) && dashUrl != null) {
+                val reason = if (hasDubbedAudio) "альтернативные аудиодорожки" else "несколько качеств видео"
+                publishPlaybackProgress(attempt, "Использую DASH: доступны $reason.")
+                return PlaybackSource(
+                    url = dashUrl,
+                    mimeType = "application/dash+xml",
+                    fallbackUrl = muxedVideoUrl,
+                    fallbackMimeType = muxedVideo?.format?.mimeType,
+                )
+            }
             if (muxedVideo != null && muxedVideoUrl != null) {
                 publishPlaybackProgress(attempt, "Поток найден (${muxedVideo.resolution}, ${muxedVideo.format?.mimeType ?: "неизвестный формат"}).")
                 return PlaybackSource(
@@ -141,6 +184,43 @@ internal object YouTubeRepository {
             playbackAttemptOnThread.set(previousAttempt)
         }
     }
+
+    fun loadComments(videoUrl: String): YouTubeCommentPage {
+        initialize()
+        val info = CommentsInfo.getInfo(ServiceList.YouTube, videoUrl)
+            ?: return YouTubeCommentPage(emptyList(), 0, commentsDisabled = true, hasMore = false)
+        commentsInfoByVideo[videoUrl] = info
+        return commentPage(info.relatedItems, info.commentsCount, info.isCommentsDisabled, info.nextPage != null)
+    }
+
+    fun loadMoreComments(videoUrl: String): YouTubeCommentPage {
+        val info = commentsInfoByVideo[videoUrl] ?: return loadComments(videoUrl)
+        val page = info.nextPage
+            ?: return commentPage(emptyList(), info.commentsCount, info.isCommentsDisabled, false)
+        val next = CommentsInfo.getMoreItems(info, page)
+        info.nextPage = next.nextPage
+        return commentPage(next.items, info.commentsCount, info.isCommentsDisabled, next.nextPage != null)
+    }
+
+    private fun commentPage(
+        items: List<CommentsInfoItem>,
+        totalCount: Int,
+        commentsDisabled: Boolean,
+        hasMore: Boolean,
+    ) = YouTubeCommentPage(
+        comments = items.map { item ->
+            val renderedText = Html.fromHtml(item.commentText.content(), Html.FROM_HTML_MODE_COMPACT).toString().trim()
+            YouTubeComment(
+                author = item.uploaderName.orEmpty().ifBlank { "YouTube" },
+                text = renderedText,
+                date = item.textualUploadDate.orEmpty(),
+                likes = item.likeCount,
+            )
+        }.filter { it.text.isNotBlank() },
+        totalCount = totalCount,
+        commentsDisabled = commentsDisabled,
+        hasMore = hasMore,
+    )
 
     private fun formatViews(count: Long): String = when {
         count >= 1_000_000 -> "${count / 1_000_000} млн просмотров"
